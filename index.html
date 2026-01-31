@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Controle de Estoque</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script> 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+
+<div id="login-screen" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #2c3e50; display: flex; justify-content: center; align-items: center; z-index: 10000;">
+    <div style="background: white; padding: 30px; border-radius: 8px; text-align: center; width: 300px;">
+        <h2>Acesso Restrito</h2>
+        <input type="email" id="login-email" placeholder="E-mail" style="width: 100%; margin-bottom: 10px; padding: 10px;">
+        <input type="password" id="login-password" placeholder="Senha" style="width: 100%; margin-bottom: 10px; padding: 10px;">
+        <button onclick="fazerLogin()" style="width: 100%; background: #3498db; color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer;">Entrar</button>
+        <p id="login-error" style="color: red; font-size: 12px; margin-top: 10px;"></p>
+    </div>
+</div>
+
+<div class="container" id="main-container" style="display: none;"> 
+    <header>
+        <div>
+            <h1>Estoque Lilian</h1>
+            <p id="data-atual"></p>
+        </div>
+        <div style="display: flex; gap: 5px;">
+            <button onclick="salvarLocal()" class="btn-save" style="width: auto; padding: 10px 20px;">☁️ Sincronizar Nuvem</button>
+            <button onclick="fazerLogout()" style="background: #ccc; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Sair</button>
+        </div>
+    </header>
+
+    <div class="search-section">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3>🔍 Gestão de Busca</h3>
+            <button onclick="toggleElement('areaFiltros')" class="btn-scan">Filtros Avançados / Busca</button>
+        </div>
+
+        <div id="areaFiltros" style="display: none; margin-top: 15px; border-top: 1px solid #ccc; padding-top: 10px;">
+            <input type="text" id="inputBusca" placeholder="Código, Descrição ou Código de Barras..." onkeyup="buscar()" style="width: 100%; margin-bottom: 10px;">
+            
+            <div class="form-group" style="margin-bottom: 10px;">
+                <input type="text" id="filtroFornecedor" placeholder="Filtrar por Fornecedor">
+                <input type="text" id="filtroGrupo" placeholder="Filtrar por Grupo">
+                <input type="number" id="filtroValor" placeholder="Valor máximo (R$)">
+                <button class="btn-save" onclick="aplicarFiltros()" style="margin-top:0">🔍 Executar Filtros</button>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn-scan" onclick="iniciarScanner('busca')">📷 Scan Barra</button>
+                <button onclick="renderizarTabela()" style="background:none; color:var(--accent); text-decoration:underline; font-size:12px; border:none; cursor:pointer;">Limpar Todos os Filtros</button>
+            </div>
+        </div>
+
+        <div style="margin-top: 10px; border-top: 1px dashed #ccc; padding-top: 10px;">
+            <button onclick="prepararConferencia()" class="btn-save" style="background: #8e44ad;">📦 Conferência por Fornecedor</button>
+            
+            <div id="areaConferencia" style="display: none; margin-top: 15px; background: #fff; padding: 15px; border-radius: 8px; border: 2px solid #8e44ad;">
+                <h4>Checkout de Fornecedor</h4>
+                <select id="selectFornecedorConf" onchange="iniciarCheckout()" style="width: 100%; margin-bottom: 10px;">
+                    <option value="">Selecione um Fornecedor...</option>
+                </select>
+
+                <div id="controleCheckout" style="display: none;">
+                    <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+                        <input type="text" id="inputManualConf" placeholder="Bipe ou digite Cód/Desc..." style="flex-grow: 1;">
+                        <button class="btn-scan" onclick="iniciarScanner('conferencia')">📷</button>
+                        <button class="btn-add" onclick="processarBipeManual()" style="padding: 5px 15px;">OK</button>
+                    </div>
+                    <div id="listaCheckoutPendente"></div>
+                    <button id="btnPdfConf" class="btn-pdf" onclick="gerarPDFConferencia()" style="display:none; width: 100%; background: #27ae60;">📄 Gerar Relatório de Conferência</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="interactive" class="viewport"></div>
+
+    <div style="margin-bottom: 20px;">
+        <button onclick="toggleElement('areaCadastro')" class="btn-add full-width" style="margin-bottom: 10px;">➕ NOVO PRODUTO</button>
+        
+        <div id="areaCadastro" style="display: none; background: #f9f9f9; padding: 15px; border-radius: 8px; border: 1px solid #ddd;">
+            <div class="form-group">
+                <input type="text" id="desc" placeholder="Descrição do Produto" class="full-width">
+                <input type="text" id="ref" placeholder="Referência">
+                <input type="number" id="qtd" placeholder="Quantidade">
+                <input type="number" id="valor" placeholder="Valor Unitário (R$)">
+                <input type="text" id="fornecedor" placeholder="Fornecedor">
+                <input type="text" id="grupo" placeholder="Grupo/Categoria">
+                <div style="display: flex; gap: 5px;" class="full-width">
+                    <input type="text" id="barcode" placeholder="Código de Barras" style="flex-grow: 1;">
+                    <button class="btn-scan" onclick="iniciarScanner('cadastro')">📷</button>
+                </div>
+                <button class="btn-add full-width" onclick="adicionarProduto()">💾 Confirmar Cadastro</button>
+            </div>
+        </div>
+    </div>
+
+    <button onclick="toggleLista()" class="btn-save" style="width: 100%; background: #2c3e50; margin-bottom: 10px;">📋 EXIBIR / OCULTAR ESTOQUE GERAL</button>
+
+    <div id="areaListaProdutos" style="display: none;">
+        <table id="tabelaEstoque">
+            <thead>
+                <tr>
+                    <th>Cód.</th>
+                    <th>Descrição</th>
+                    <th>Fornec./Grupo</th>
+                    <th>Qtd</th>
+                    <th>Valor</th>
+                    <th>Barras</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody id="listaProdutos"></tbody>
+        </table>
+
+        <button class="btn-pdf" onclick="gerarPDF()">📄 Gerar Relatório PDF</button>
+    </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
